@@ -3,7 +3,7 @@ const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 
 const registerUser = async (req, res) => {
-  const { username, password, name, email } = req.body;
+  const { username, password, name, email, role } = req.body;
 
   try {
     const user = await User.findOne(email);
@@ -12,14 +12,21 @@ const registerUser = async (req, res) => {
       password,
       Number(process.env.SALT_ROUND)
     );
-    const newUser = new User({ username, password: hashPassword, name, email });
+    const newUser = new User({
+      username,
+      password: hashPassword,
+      name,
+      email,
+      role,
+    });
     const savedUser = await newUser.save();
-    res.state(201).json({
+    res.status(201).json({
       message: "registeration success",
       user: {
         username: savedUser.username,
         name: savedUser.name,
         email: savedUser.email,
+        role: savedUser.role,
       },
     });
   } catch (error) {
@@ -42,7 +49,7 @@ const loginUser = async (req, res) => {
         userId: user._id,
         role: user.role,
       },
-      process.env.JWT_SEACRET,
+      process.env.JWT_SECRET,
       { expiresIn: "1d" }
     );
     res.status(201).json({
@@ -57,7 +64,7 @@ const loginUser = async (req, res) => {
 
 const getAllUsers = async (req, res) => {
   try {
-    const users = await User.find();
+    const users = await User.find().select("-password");
     res.json(users);
   } catch (error) {
     res.status(500).json({ message: "internal server error" });
@@ -70,7 +77,7 @@ const getUserById = async (req, res) => {
     const { id } = req.params;
 
     // Check if the requester is the user themselves or an Admin
-    if (req.user.role !== "Admin" && req.user._id !== id) {
+    if (req.user.role !== "Admin" && req.user.userId !== id) {
       return res.status(403).json({ message: "Access denied" });
     }
 
@@ -92,14 +99,18 @@ const updateUser = async (req, res) => {
     const { name, email, password } = req.body;
 
     // Check if the requester is the user themselves or an Admin
-    if (req.user.role !== "Admin" && req.user._id !== id) {
+    if (req.user.role !== "Admin" && req.user.userId !== id) {
       return res.status(403).json({ message: "Access denied" });
     }
 
     const updates = {};
     if (name) updates.name = name;
     if (email) updates.email = email;
-    if (password) updates.password = await bcrypt.hash(password, 10);
+    if (password)
+      updates.password = await bcrypt.hash(
+        password,
+        Number(process.env.SALT_ROUND)
+      );
 
     const updatedUser = await User.findByIdAndUpdate(id, updates, {
       new: true,
